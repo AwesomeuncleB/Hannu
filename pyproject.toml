@@ -4,8 +4,10 @@ version = "0.1.0"
 description = "Healthcare savings and payment platform: bill reader, rules and review queue."
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography",
     "fastapi",
     "groq",
+    "httpx",
     "psycopg[binary,pool]",
     "pillow",
     "pydantic>=2",

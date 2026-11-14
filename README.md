@@ -156,6 +156,10 @@ only recommend.
 | `GROQ_API_KEY` | Key for the bill reader. |
 | `HANU_ADMIN_EMAIL`, `HANU_ADMIN_PASSWORD` | The first staff account, created on first start. |
 | `HANU_SEED_DEMO` | Set to `1` only for a demo: it adds demo members whose PIN is public in this repository. |
+| `HANU_VAULT_ACCOUNT`, `HANU_AGENT_ACCOUNT`, `HANU_AGENT_KEY`, `HANU_REVIEWER_ACCOUNT`, `HANU_REVIEWER_KEY`, `HANU_CLINIC_PARENT`, `NEAR_NETWORK` | Turn NEAR on. Copy them from `backend/.env.near`. The vault and clinic keys are not needed by the app; leave them out. |
+
+Import the repository as one project with the repository root as its root directory. The
+`contract/` folder is deployed to NEAR with `near_setup.py`, not to Vercel.
 
 Without `DATABASE_URL`, a Vercel deployment keeps its data on a temporary disk that is
 wiped whenever the function restarts.
