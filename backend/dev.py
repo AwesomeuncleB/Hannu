@@ -14,12 +14,9 @@ import uvicorn
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 
-env_file = HERE / ".env"
-if env_file.exists():
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        key, sep, value = line.strip().partition("=")
-        if sep and key and not key.startswith("#"):
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+from dev_env import load_env  # noqa: E402
+
+load_env()  # backend/.env, and backend/.env.near written by near_setup.py
 
 os.environ.setdefault("HANU_SEED_DEMO", "1")
 # Local-only staff account. A deployment must set its own HANU_ADMIN_EMAIL and
@@ -31,6 +28,7 @@ if not os.environ.get("GROQ_API_KEY"):
     os.environ.setdefault("HANU_EXTRACTOR", "mock")
     if os.environ["HANU_EXTRACTOR"] == "mock":
         print("No GROQ_API_KEY set: using the MOCK bill reader (canned results).")
+print("NEAR vault:", os.environ.get("HANU_VAULT_ACCOUNT") or "off (database only)")
 print("Database:", "Postgres (DATABASE_URL)" if os.environ.get("DATABASE_URL") else "local SQLite file")
 
 if __name__ == "__main__":

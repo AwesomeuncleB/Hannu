@@ -223,6 +223,12 @@ async function openCase(id) {
     el('div', { class: 'head' }, el('h2', {}, `Case ${c.id}`), el('span', { class: 'pill ' + c.status }, c.status.replace('_', ' '))),
     el('p', { class: 'sub' }, `${c.member_name || 'Unknown member'} · sent as ${c.hanu_id_submitted} · balance ${naira(c.balance_kobo)} · received ${when(c.created_at)}`),
     el('section', { class: 'card' }, el('h3', {}, `Rules ${c.rules_version}`), flags),
+    c.chain ? el('section', { class: 'card' }, el('h3', {}, 'On NEAR'),
+      el('p', {}, c.chain.claim_id === null
+        ? 'Not filed on chain yet. It is filed when you decide.'
+        : `Claim #${c.chain.claim_id} in the vault, filed by the agent account. The agent's key cannot pay; only your decision moves money.`),
+      c.chain.file_tx_url ? el('p', {}, el('a', { href: c.chain.file_tx_url, target: '_blank', rel: 'noopener' }, 'Filing transaction')) : null,
+      c.chain.decide_tx_url ? el('p', {}, el('a', { href: c.chain.decide_tx_url, target: '_blank', rel: 'noopener' }, 'Decision transaction')) : null) : null,
     el('div', { class: 'cols' },
       el('section', { class: 'card bill' }, el('h3', {}, 'Bill photo'), img),
       el('section', { class: 'card' }, el('h3', {}, `Read by ${c.extractor_model}`), read)),

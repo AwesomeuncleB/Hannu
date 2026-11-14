@@ -14,6 +14,17 @@ HANU_EXTRACTOR                "groq" (default) or "mock" (canned result, no API 
 HANU_MODEL                    Groq vision model for the bill reader (default qwen/qwen3.8-27b)
 GROQ_API_KEY                  key for the bill reader
 HANU_SEED_DEMO                "1" to load demo members and clinics into an empty database
+
+NEAR (all optional; when HANU_VAULT_ACCOUNT is unset, nothing goes on chain):
+HANU_VAULT_ACCOUNT            account the Hanu vault contract is deployed to
+HANU_AGENT_ACCOUNT            account the bill reader files claims from, and
+HANU_AGENT_KEY                its function-call key ("ed25519:..."), limited to file_claim
+HANU_REVIEWER_ACCOUNT         account staff decisions are signed with, and
+HANU_REVIEWER_KEY             its function-call key, limited to approve and deny
+HANU_CLINIC_PARENT            parent account of the demo clinics' accounts
+NEAR_NETWORK                  "testnet" (default) or "mainnet"
+NEAR_RPC_URL                  default https://rpc.<network>.near.org
+HANU_YOCTO_PER_KOBO           demo exchange rate (default 10**16, so 1 NEAR = 1,000,000 naira)
 """
 import os
 from pathlib import Path
@@ -67,3 +78,45 @@ def model() -> str:
 
 def seed_demo() -> bool:
     return os.environ.get("HANU_SEED_DEMO", "0") == "1"
+
+
+# --- NEAR ---------------------------------------------------------------------------
+
+def vault_account() -> str:
+    return os.environ.get("HANU_VAULT_ACCOUNT", "").strip()
+
+
+def agent_account() -> str:
+    return os.environ.get("HANU_AGENT_ACCOUNT", "").strip()
+
+
+def agent_key() -> str:
+    return os.environ.get("HANU_AGENT_KEY", "").strip()
+
+
+def reviewer_account() -> str:
+    return os.environ.get("HANU_REVIEWER_ACCOUNT", "").strip()
+
+
+def reviewer_key() -> str:
+    return os.environ.get("HANU_REVIEWER_KEY", "").strip()
+
+
+def clinic_parent() -> str:
+    return os.environ.get("HANU_CLINIC_PARENT", "").strip()
+
+
+def near_network() -> str:
+    return os.environ.get("NEAR_NETWORK", "testnet")
+
+
+def near_rpc_url() -> str:
+    return os.environ.get("NEAR_RPC_URL") or f"https://rpc.{near_network()}.near.org"
+
+
+def near_explorer_url() -> str:
+    return "https://testnet.nearblocks.io" if near_network() == "testnet" else "https://nearblocks.io"
+
+
+def yocto_per_kobo() -> int:
+    return int(os.environ.get("HANU_YOCTO_PER_KOBO", str(10**16)))

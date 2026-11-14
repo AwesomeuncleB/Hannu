@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from PIL import Image
 
-from . import config, db, extract, rules
+from . import chain, config, db, extract, rules
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MEDIA_TYPES = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
@@ -60,6 +60,16 @@ def submit_bill(hanu_id: str, image_bytes: bytes) -> dict:
             db.lock_row(conn, "members", member["id"])  # one bill at a time per member
         case_id = _same_photo(conn, member, sha) or _open_case(conn, member, hanu_id, sha,
                                                                media_type, image_bytes, result)
+    if chain.enabled():
+        # The agent files the claim on NEAR after the case is saved, so a slow or failed
+        # chain call never loses a bill. A claim that failed to file is filed at review.
+        with db.tx() as conn:
+            case = db.lock_row(conn, "cases", case_id)
+            if case["member_id"] and case["chain_claim_id"] is None:
+                try:
+                    _file_on_chain(conn, case)
+                except Problem as exc:
+                    db.audit(conn, case_id, "agent", "chain_file_failed", {"error": exc.message})
     conn = db.connect()
     try:
         return _receipt(conn, case_id)
@@ -132,7 +142,8 @@ def _open_case(conn, member, hanu_id, sha, media_type, image_bytes, result) -> i
     db.audit(conn, case_id, f"rules:{verdict['version']}", "rules_applied",
              {**verdict, "shadow_mode": config.shadow_mode()})
 
-    if verdict["recommendation"] == "approve" and not config.shadow_mode():
+    # On NEAR only a reviewer can move money, so the rules never pay on their own there.
+    if verdict["recommendation"] == "approve" and not config.shadow_mode() and not chain.enabled():
         _pay(conn, case_id, member["id"], clinic["id"], total_kobo,
              actor=f"rules:{verdict['version']}", reason="Passed every written rule.")
     return case_id
@@ -157,6 +168,12 @@ def decide(case_id: int, action: str, staff, reason: str = "",
             conn.execute(
                 "UPDATE cases SET status = 'denied', decided_by = ?, decision_reason = ?, "
                 "decided_at = ? WHERE id = ?", (actor, reason, db.now(), case_id))
+            if chain.enabled() and case["member_id"]:
+                claim_id = _file_on_chain(conn, case)
+                tx = _on_chain(lambda: chain.deny(claim_id, reason))
+                conn.execute("UPDATE cases SET chain_decide_tx = ? WHERE id = ?", (tx, case_id))
+                db.audit(conn, case_id, f"reviewer:{config.reviewer_account()}", "denied_on_chain",
+                         {"claim_id": claim_id, "tx": tx})
             db.audit(conn, case_id, actor, "denied", {"reason": reason})
             return get_case(conn, case_id)
 
@@ -178,8 +195,54 @@ def decide(case_id: int, action: str, staff, reason: str = "",
         if (flags or amount != case["total_kobo"]) and len(reason) < 5:
             raise Problem(422, "This case has flags or a changed amount, so approving it needs a note.")
 
+        if chain.enabled():
+            # The vault pays the clinic. If the contract refuses, nothing is recorded here.
+            if not clinic["near_account"]:
+                raise Problem(422, f"{clinic['name']} has no NEAR account to be paid at.")
+            claim_id = _file_on_chain(conn, case)
+            tx = _on_chain(lambda: chain.approve(claim_id, amount, clinic["near_account"], reason))
+            conn.execute("UPDATE cases SET chain_decide_tx = ? WHERE id = ?", (tx, case_id))
+            db.audit(conn, case_id, f"reviewer:{config.reviewer_account()}", "paid_on_chain",
+                     {"claim_id": claim_id, "tx": tx, "clinic": clinic["near_account"]})
         _pay(conn, case_id, case["member_id"], clinic["id"], amount, actor=actor, reason=reason)
         return get_case(conn, case_id)
+
+
+def _file_on_chain(conn, case) -> int:
+    """The agent files the claim on NEAR, once. Returns the claim id."""
+    if case["chain_claim_id"] is not None:
+        return case["chain_claim_id"]
+    member = conn.execute("SELECT hanu_id FROM members WHERE id = ?", (case["member_id"],)).fetchone()
+    clinic = conn.execute("SELECT near_account FROM clinics WHERE id = ?",
+                          (case["clinic_id"],)).fetchone() if case["clinic_id"] else None
+    flags = [f["message"] for f in json.loads(case["flags_json"])]
+    result = _on_chain(lambda: chain.file_claim(
+        member["hanu_id"], case["total_kobo"] or 0, clinic["near_account"] if clinic else None,
+        case["image_sha256"], case["rules_version"], flags), full=True)
+    claim_id = int(result["value"])
+    conn.execute("UPDATE cases SET chain_claim_id = ?, chain_file_tx = ? WHERE id = ?",
+                 (claim_id, result["tx"], case["id"]))
+    db.audit(conn, case["id"], f"agent:{config.agent_account()}", "filed_on_chain",
+             {"claim_id": claim_id, "tx": result["tx"]})
+    return claim_id
+
+
+def _on_chain(call, full: bool = False):
+    try:
+        result = call()
+    except chain.ChainError as exc:
+        raise Problem(502, f"NEAR refused or failed: {exc}")
+    return result if full else result["tx"]
+
+
+def chain_info(case) -> dict | None:
+    if not chain.enabled():
+        return None
+    return {
+        "claim_id": case["chain_claim_id"],
+        "file_tx_url": chain.tx_url(case["chain_file_tx"]),
+        "decide_tx_url": chain.tx_url(case["chain_decide_tx"]),
+    }
 
 
 def _pay(conn, case_id: int, member_id: int, clinic_id: int, amount_kobo: int, actor: str, reason: str):
@@ -207,6 +270,7 @@ def get_case(conn, case_id: int) -> dict:
     case["extraction"] = json.loads(case.pop("extraction_json")) if case["extraction_json"] else None
     case["flags"] = json.loads(case.pop("flags_json"))
     case["balance_kobo"] = db.balance_kobo(conn, case["member_id"]) if case["member_id"] else None
+    case["chain"] = chain_info(case)
     case["audit"] = [
         {"actor": a["actor"], "event": a["event"], "at": a["created_at"], "detail": json.loads(a["detail_json"])}
         for a in conn.execute("SELECT * FROM audit_log WHERE case_id = ? ORDER BY id", (case_id,)).fetchall()
@@ -403,11 +467,14 @@ def member_home(member) -> dict:
         bills = []
         for row in conn.execute(
                 "SELECT c.id, c.status, c.total_kobo, c.paid_kobo, c.created_at, c.decision_reason, "
-                "cl.name AS clinic_name FROM cases c LEFT JOIN clinics cl ON cl.id = c.clinic_id "
+                "c.chain_claim_id, c.chain_file_tx, c.chain_decide_tx, cl.name AS clinic_name FROM cases c LEFT JOIN clinics cl ON cl.id = c.clinic_id "
                 "WHERE c.member_id = ? ORDER BY c.id DESC LIMIT 50", (member["id"],)).fetchall():
             bill = dict(row)
             if bill["status"] != "denied":
                 bill["decision_reason"] = None  # reviewer notes on approvals are internal
+            bill["chain"] = chain_info(bill)
+            for key in ("chain_claim_id", "chain_file_tx", "chain_decide_tx"):
+                bill.pop(key)
             bills.append(bill)
         return {
             "name": member["name"],
@@ -415,6 +482,7 @@ def member_home(member) -> dict:
             "lock_until": member["lock_until"],
             "balance_kobo": db.balance_kobo(conn, member["id"]),
             "bills": bills,
+            "near": _member_near(member["hanu_id"]),
         }
     finally:
         conn.close()
@@ -422,3 +490,15 @@ def member_home(member) -> dict:
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _member_near(hanu_id: str) -> dict | None:
+    """Where the member's savings are held on NEAR, and the balance the vault reports."""
+    if not chain.enabled():
+        return None
+    try:
+        balance = chain.balance_kobo(hanu_id)
+    except chain.ChainError:
+        balance = None
+    return {"vault": config.vault_account(), "vault_url": chain.account_url(config.vault_account()),
+            "balance_kobo": balance, "network": config.near_network()}

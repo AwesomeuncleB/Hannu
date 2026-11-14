@@ -1,0 +1,4 @@
+# Rust 1.82 and later emit WebAssembly features the NEAR runtime does not accept yet.
+[toolchain]
+channel = "1.81"
+targets = ["wasm32-unknown-unknown"]

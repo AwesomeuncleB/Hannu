@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 from . import config
 
-SCHEMA_VERSION = 2  # SQLite only: an older local file is set aside and a fresh one started
+SCHEMA_VERSION = 3  # SQLite only: an older local file is set aside and a fresh one started
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS members (
@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS clinics (
     id {pk},
     name TEXT NOT NULL,
     name_key TEXT NOT NULL UNIQUE,
-    is_partner INTEGER NOT NULL DEFAULT 1
+    is_partner INTEGER NOT NULL DEFAULT 1,
+    near_account TEXT
 );
 CREATE TABLE IF NOT EXISTS bill_images (
     sha256 TEXT PRIMARY KEY,
@@ -75,7 +76,10 @@ CREATE TABLE IF NOT EXISTS cases (
     decided_by TEXT,
     decision_reason TEXT,
     created_at TEXT NOT NULL,
-    decided_at TEXT
+    decided_at TEXT,
+    chain_claim_id BIGINT,
+    chain_file_tx TEXT,
+    chain_decide_tx TEXT
 );
 CREATE TABLE IF NOT EXISTS ledger (
     id {pk},
@@ -98,10 +102,20 @@ CREATE INDEX IF NOT EXISTS cases_status ON cases(status, created_at);
 CREATE INDEX IF NOT EXISTS cases_member ON cases(member_id);
 CREATE INDEX IF NOT EXISTS ledger_member ON ledger(member_id)
 """
+# Columns added after the first Postgres deployments. (SQLite files are simply recreated.)
+PG_MIGRATIONS = [
+    "ALTER TABLE clinics ADD COLUMN IF NOT EXISTS near_account TEXT",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS chain_claim_id BIGINT",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS chain_file_tx TEXT",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS chain_decide_tx TEXT",
+]
 # ledger.case_id is UNIQUE: one payment per case, so a retry can never pay twice.
 
 # PIN for the invented demo members only (see seed_demo). Real members choose their own.
 DEMO_PIN = "4821"
+DEMO_MEMBERS = [("HN-4821-0937", "Amina Yusuf", 42000, "2027-05-31"),
+                ("HN-1107-5520", "Chinedu Okafor", 6000, "2027-02-28")]
+DEMO_PARTNER_CLINICS = ["Sabon Gari Family Clinic", "Unity Diagnostics"]
 HASH_ITERATIONS = 200_000  # the tests lower this so they run quickly
 
 
@@ -203,6 +217,9 @@ def init() -> None:
         pk = "BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY" if conn.pg else "INTEGER PRIMARY KEY"
         for statement in SCHEMA.format(pk=pk, blob="BYTEA" if conn.pg else "BLOB").split(";"):
             conn.execute(statement)
+        if conn.pg:
+            for statement in PG_MIGRATIONS:
+                conn.execute(statement)
         if not conn.pg:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         _ensure_admin(conn)
@@ -270,10 +287,10 @@ def add_member(conn: Conn, hanu_id: str, name: str, contribution_naira: int = 0,
     return member_id
 
 
-def add_clinic(conn: Conn, name: str, is_partner: bool = True) -> int:
+def add_clinic(conn: Conn, name: str, is_partner: bool = True, near_account: str | None = None) -> int:
     return conn.execute(
-        "INSERT INTO clinics (name, name_key, is_partner) VALUES (?,?,?) RETURNING id",
-        (name, name_key(name), int(is_partner)),
+        "INSERT INTO clinics (name, name_key, is_partner, near_account) VALUES (?,?,?,?) RETURNING id",
+        (name, name_key(name), int(is_partner), near_account),
     ).fetchone()["id"]
 
 
@@ -299,8 +316,10 @@ def seed_demo() -> None:
     with tx() as conn:
         if conn.execute("SELECT 1 FROM members LIMIT 1").fetchone():
             return
-        add_member(conn, "HN-4821-0937", "Amina Yusuf", 42000, "2027-05-31", DEMO_PIN)
-        add_member(conn, "HN-1107-5520", "Chinedu Okafor", 6000, "2027-02-28", DEMO_PIN)
-        add_clinic(conn, "Sabon Gari Family Clinic")
-        add_clinic(conn, "Unity Diagnostics")
+        for hanu_id, name, naira, lock_until in DEMO_MEMBERS:
+            add_member(conn, hanu_id, name, naira, lock_until, DEMO_PIN)
+        # On NEAR, partner clinics are paid at <slug>.<HANU_CLINIC_PARENT>; see near_setup.py.
+        from . import chain
+        for clinic in DEMO_PARTNER_CLINICS:
+            add_clinic(conn, clinic, near_account=chain.clinic_account(clinic))
         add_clinic(conn, "Riverside Medical Centre", is_partner=False)
