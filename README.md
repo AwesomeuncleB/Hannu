@@ -109,7 +109,7 @@ Amounts are converted at a fixed demo rate (`HANU_YOCTO_PER_KOBO`, default 1 NEA
 ### Tools and generated code
 
 Libraries: near-sdk (Rust), FastAPI, cryptography (ed25519), httpx, Pillow, psycopg, Groq.
-Much of the code in this repository was written with an AI coding assistant and reviewed
+Some of the code in this repository was written with an AI coding assistant (Antigravity & Claude) and reviewed
 by the author.
 
 ## What is here
