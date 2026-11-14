@@ -43,6 +43,17 @@ When NEAR is switched on, the flow is:
 On chain, the rules never pay on their own, even with shadow mode off: only a reviewer
 moves money.
 
+### Live on testnet
+
+- Vault: [vault.hanu-vault-demo.testnet](https://testnet.nearblocks.io/address/vault.hanu-vault-demo.testnet)
+- Agent (one key, `file_claim` only): [agent.hanu-vault-demo.testnet](https://testnet.nearblocks.io/address/agent.hanu-vault-demo.testnet)
+- Reviewer (one key, `approve` and `deny` only): [reviewer.hanu-vault-demo.testnet](https://testnet.nearblocks.io/address/reviewer.hanu-vault-demo.testnet)
+- A bill filed by the agent: [claim #0](https://testnet.nearblocks.io/txns/4n315uMyEzewBHkeL7KSwyr9pBWFG6nWyPKiV4CpFGda),
+  then approved by the reviewer and paid to the clinic: [payment](https://testnet.nearblocks.io/txns/2VvLzjDvb29G6oD3z2wAa7LbCqZbRtBL1jsmZXKJ3kEp)
+- The contract refusing a non-agent's claim: [transaction](https://testnet.nearblocks.io/txns/5AwUCUwU5Vd1mMv7uUQ9A7yA4Mr9skNQk184jkHMDu7E).
+  The agent's key trying to call `approve` is rejected by NEAR before it reaches the contract
+  (`MethodNameMismatch`), so that attempt never becomes a transaction; `near_setup.py --check` shows it.
+
 ### What was built during the hackathon
 
 Everything up to the tag `pre-hackathon` was written before this work, on 11 November 2026,

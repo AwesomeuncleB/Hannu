@@ -28,6 +28,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+sys.stdout.reconfigure(encoding="utf-8")  # the naira sign, on a Windows console
 
 from dev_env import load_env  # noqa: E402
 
