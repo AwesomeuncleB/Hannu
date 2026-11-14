@@ -5,3 +5,4 @@ __pycache__/
 *.db
 .env.near
 contract/target/
+.env.vercel

@@ -210,10 +210,18 @@ def lock_row(conn: Conn, table: str, row_id: int):
     ).fetchone()
 
 
+def _setup_lock(conn: Conn) -> None:
+    """On Postgres, several copies of the app can start at once (Vercel does this). They take
+    turns creating tables and demo data, instead of colliding. Released at commit."""
+    if conn.pg:
+        conn.execute("SELECT pg_advisory_xact_lock(4821093)")
+
+
 def init() -> None:
     if not config.database_url():
         _set_aside_old_sqlite()
     with tx() as conn:
+        _setup_lock(conn)
         pk = "BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY" if conn.pg else "INTEGER PRIMARY KEY"
         for statement in SCHEMA.format(pk=pk, blob="BYTEA" if conn.pg else "BLOB").split(";"):
             conn.execute(statement)
@@ -314,6 +322,7 @@ def _ensure_admin(conn: Conn) -> None:
 def seed_demo() -> None:
     """Invented members and clinics for trying the product. Adds nothing if any member exists."""
     with tx() as conn:
+        _setup_lock(conn)
         if conn.execute("SELECT 1 FROM members LIMIT 1").fetchone():
             return
         for hanu_id, name, naira, lock_until in DEMO_MEMBERS:
