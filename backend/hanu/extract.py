@@ -98,6 +98,22 @@ def _strict_schema() -> dict:
     return tidy(schema)
 
 
+JSON_ATTEMPTS = 3
+
+
+def _create_with_retry(groq, create):
+    """Groq's strict JSON mode sometimes rejects a garbled generation with
+    json_validate_failed. That is the model's fault, not the request's, so try again."""
+    for attempt in range(JSON_ATTEMPTS):
+        try:
+            return create()
+        except groq.BadRequestError as exc:
+            body = exc.body if isinstance(exc.body, dict) else {}
+            code = (body.get("error") or body).get("code")
+            if code != "json_validate_failed" or attempt == JSON_ATTEMPTS - 1:
+                raise
+
+
 def _groq(image_bytes: bytes, media_type: str) -> ExtractionResult:
     import groq
     from pydantic import ValidationError
@@ -105,7 +121,7 @@ def _groq(image_bytes: bytes, media_type: str) -> ExtractionResult:
     model = config.model()
     data_url = f"data:{media_type};base64," + base64.b64encode(image_bytes).decode("ascii")
     try:
-        response = groq.Groq().chat.completions.create(
+        response = _create_with_retry(groq, lambda: groq.Groq().chat.completions.create(
             model=model,
             temperature=0,
             messages=[
@@ -117,7 +133,7 @@ def _groq(image_bytes: bytes, media_type: str) -> ExtractionResult:
             ],
             response_format={"type": "json_schema", "json_schema": {
                 "name": "bill_extraction", "strict": True, "schema": _strict_schema()}},
-        )
+        ))
     except groq.AuthenticationError:
         return ExtractionResult(None, model, "reader_not_configured")
     except groq.RateLimitError:

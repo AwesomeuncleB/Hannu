@@ -23,7 +23,7 @@ HANU_REVIEWER_ACCOUNT         account staff decisions are signed with, and
 HANU_REVIEWER_KEY             its function-call key, limited to approve and deny
 HANU_CLINIC_PARENT            parent account of the demo clinics' accounts
 NEAR_NETWORK                  "testnet" (default) or "mainnet"
-NEAR_RPC_URL                  default https://rpc.<network>.near.org
+NEAR_RPC_URL                  default FastNEAR's public RPC for the network
 HANU_YOCTO_PER_KOBO           demo exchange rate (default 10**16, so 1 NEAR = 1,000,000 naira)
 """
 import os
@@ -111,7 +111,9 @@ def near_network() -> str:
 
 
 def near_rpc_url() -> str:
-    return os.environ.get("NEAR_RPC_URL") or f"https://rpc.{near_network()}.near.org"
+    # FastNEAR's public RPC answers in about two seconds; rpc.testnet.near.org took five.
+    default = "https://test.rpc.fastnear.com" if near_network() == "testnet" else "https://free.rpc.fastnear.com"
+    return os.environ.get("NEAR_RPC_URL") or default
 
 
 def near_explorer_url() -> str:
