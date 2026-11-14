@@ -56,22 +56,7 @@ moves money.
 
 ### What was built during the hackathon
 
-Everything up to the tag `pre-hackathon` was written before this work, on 11 November 2026,
-inside the hackathon window. The NEAR work is the diff from `pre-hackathon` to
-`hackathon-submission`:
-
-```bash
-git diff pre-hackathon hackathon-submission --stat
-```
-
-- `contract/`: the vault contract in Rust (near-sdk 5.5) and its unit tests.
-- `backend/hanu/chain.py`: a small NEAR client (JSON-RPC, Borsh-encoded transactions,
-  ed25519 signing), so the Python service runs on Vercel without a NEAR SDK.
-- `backend/near_setup.py`: creates the accounts and restricted keys on testnet, deploys the
-  vault, registers roles and clinics, and pays in the demo balances. `--check` shows the
-  agent's key being refused.
-- Changes to `service.py`, `db.py` and the two pages to file, decide and show claims on NEAR.
-- `backend/tests/test_chain.py`, and a GitHub Actions workflow that runs both test suites.
+All of Hanu was built inside the hackathon window, starting 11 November 2026. The tag `pre-hackathon` marks the prototype before NEAR was added, and `git diff pre-hackathon hackathon-submission` shows the NEAR work.
 
 ### Run it on testnet
 
